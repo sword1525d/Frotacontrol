@@ -149,6 +149,10 @@ export default function DashboardTruckPage() {
     }
   };
 
+  const handleStartRun = () => {
+    router.push('/dashboard-truck/run');
+  };
+
   const companyStyles = useMemo(() => {
     if (user?.companyId === 'LSL') {
       return {
@@ -216,7 +220,7 @@ export default function DashboardTruckPage() {
             
             <section className="mt-6">
                 <h2 className="text-lg font-semibold text-gray-600 mb-3">Acompanhamento</h2>
-                <Button className="w-full h-20 text-lg bg-gradient-to-r from-primary to-accent text-white shadow-lg hover:opacity-90">
+                <Button className="w-full h-20 text-lg bg-gradient-to-r from-primary to-accent text-white shadow-lg hover:opacity-90" onClick={handleStartRun}>
                     <PlayCircle className="mr-3"/>
                     Iniciar/Acompanhar
                 </Button>
