@@ -82,7 +82,20 @@ function ActiveRunContent() {
       const runSnap = await getDoc(runRef);
 
       if (runSnap.exists()) {
-        setRun({ id: runSnap.id, ...runSnap.data() } as Run);
+        const runData = { id: runSnap.id, ...runSnap.data() } as Run;
+        setRun(runData);
+        // Pre-fill stop data if run is reloaded
+        const initialStopData: typeof stopData = {};
+        runData.stops.forEach(stop => {
+          if (stop.status === 'IN_PROGRESS' || stop.status === 'COMPLETED') {
+            initialStopData[stop.name] = {
+              cars: stop.collectedCars?.toString() || '',
+              items: stop.collectedItems?.toString() || '',
+              mileage: stop.mileageAtStop?.toString() || '',
+            }
+          }
+        });
+        setStopData(initialStopData);
       } else {
         toast({ variant: 'destructive', title: 'Erro', description: 'Acompanhamento não encontrado.' });
         router.push('/dashboard-truck');
@@ -99,24 +112,29 @@ function ActiveRunContent() {
     fetchRun();
   }, [fetchRun]);
 
-  const handleRegisterArrival = async (stopIndex: number) => {
+ const handleRegisterArrival = async (stopIndex: number) => {
     if (!run || !firestore || !runId) return;
 
-    const updatedStops = [...run.stops];
-    if (updatedStops[stopIndex].status !== 'PENDING') return;
-
-    updatedStops[stopIndex] = {
-      ...updatedStops[stopIndex],
-      status: 'IN_PROGRESS',
-      arrivalTime: serverTimestamp(),
-    };
+    if (run.stops[stopIndex].status !== 'PENDING') return;
 
     try {
       const companyId = localStorage.getItem('companyId');
       const sectorId = localStorage.getItem('sectorId');
       const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
-      await updateDoc(runRef, { stops: updatedStops });
+      
+      // Use dot notation to update specific fields in an array element
+      await updateDoc(runRef, {
+        [`stops.${stopIndex}.status`]: 'IN_PROGRESS',
+        [`stops.${stopIndex}.arrivalTime`]: serverTimestamp(),
+      });
+
+      // Update local state to reflect the change immediately
+      const updatedStops = [...run.stops];
+      updatedStops[stopIndex].status = 'IN_PROGRESS';
+      // Note: serverTimestamp() resolves on the server, so local time is a placeholder
+      updatedStops[stopIndex].arrivalTime = new Date(); 
       setRun({ ...run, stops: updatedStops });
+      
       toast({ title: 'Chegada registrada!', description: `Você chegou em ${run.stops[stopIndex].name}.` });
     } catch (error) {
       console.error("Erro ao registrar chegada: ", error);
@@ -135,23 +153,33 @@ function ActiveRunContent() {
       toast({ variant: 'destructive', title: 'Campos obrigatórios', description: 'Preencha todos os campos para finalizar a parada.' });
       return;
     }
-
-    const updatedStops = [...run.stops];
-    updatedStops[stopIndex] = {
-      ...updatedStops[stopIndex],
-      status: 'COMPLETED',
-      departureTime: serverTimestamp(),
-      collectedCars: Number(cars),
-      collectedItems: Number(items),
-      mileageAtStop: Number(mileage),
-    };
     
     try {
       const companyId = localStorage.getItem('companyId');
       const sectorId = localStorage.getItem('sectorId');
       const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
-      await updateDoc(runRef, { stops: updatedStops });
+
+      // Use dot notation to update specific fields in an array element
+      await updateDoc(runRef, {
+        [`stops.${stopIndex}.status`]: 'COMPLETED',
+        [`stops.${stopIndex}.departureTime`]: serverTimestamp(),
+        [`stops.${stopIndex}.collectedCars`]: Number(cars),
+        [`stops.${stopIndex}.collectedItems`]: Number(items),
+        [`stops.${stopIndex}.mileageAtStop`]: Number(mileage),
+      });
+
+      // Update local state to reflect the change immediately
+      const updatedStops = [...run.stops];
+      updatedStops[stopIndex] = {
+        ...updatedStops[stopIndex],
+        status: 'COMPLETED',
+        departureTime: new Date(), // Placeholder for server time
+        collectedCars: Number(cars),
+        collectedItems: Number(items),
+        mileageAtStop: Number(mileage),
+      };
       setRun({ ...run, stops: updatedStops });
+      
       toast({ title: 'Parada finalizada!', description: `Parada em ${stopName} concluída.` });
     } catch (error) {
        console.error("Erro ao finalizar parada: ", error);
