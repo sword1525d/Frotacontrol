@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { LogOut, PlayCircle, Loader2 } from 'lucide-react';
 import { Truck } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import Link from 'next/link';
 
 // Tipos para os dados do Firebase
 type UserData = {
@@ -58,7 +59,7 @@ const VehicleCard = ({ vehicle }: { vehicle: Vehicle }) => {
             <CardContent className="p-3">
                 <p className="font-bold text-card-foreground">{vehicle.id}</p>
                 <p className="text-xs text-muted-foreground mb-1">{vehicle.model}</p>
-                <span className={`text-white text-[10px] font-semibold px-2 py-0.5 rounded-full ${getStatusColorClass()}`}>
+                <span className={`whitespace-nowrap text-white text-[10px] font-semibold px-2 py-0.5 rounded-full ${getStatusColorClass()}`}>
                     {vehicle.status}
                 </span>
                 <div className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-full mt-2 overflow-hidden">
@@ -196,18 +197,25 @@ export default function DashboardTruckPage() {
         <div className="flex justify-between items-start mb-8">
             <div>
               <div className="flex items-center gap-2 mb-2">
-                <Truck className="h-8 w-8 text-primary" />
                 <h1 className="text-3xl font-bold font-headline text-primary">
-                  Frotacontrol
+                  Dashboard
                 </h1>
               </div>
               <p className="text-lg font-semibold">{user.name}</p>
               <p className="text-sm text-muted-foreground">{user.matricula}</p>
             </div>
-            <Button variant="outline" size="icon" onClick={handleLogout}>
-              <LogOut />
-              <span className="sr-only">Sair</span>
-            </Button>
+            <div className='flex gap-2'>
+              <Button variant="outline" size="icon" onClick={handleLogout}>
+                <LogOut />
+                <span className="sr-only">Sair</span>
+              </Button>
+               <div className="text-center text-sm">
+                <Link href="/admin" className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-10 w-10">
+                  <Truck />
+                </Link>
+            </div>
+            </div>
+
         </div>
 
         <section className="mb-8">
