@@ -18,7 +18,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, PlayCircle, CheckCircle, Clock, MapPin, Truck, User, LineChart, Calendar as CalendarIcon } from 'lucide-react';
+import { Loader2, PlayCircle, CheckCircle, Clock, MapPin, Truck, User, LineChart, Calendar as CalendarIcon, Route } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -249,6 +249,23 @@ const RunAccordionItem = ({ run }: { run: Run }) => {
     }
   };
 
+  const handleViewRealTimeRoute = () => {
+    if (!run.locationHistory || run.locationHistory.length < 1) {
+        alert('Ainda não há dados de localização para este trajeto.');
+        return;
+    }
+
+    // Just show the path taken so far.
+    const waypoints = run.locationHistory
+        .map(p => `${p.latitude},${p.longitude}`)
+        .join('|');
+
+    const url = `https://www.google.com/maps/dir/?api=1&waypoints=${waypoints}&travelmode=driving`;
+    
+    window.open(url, '_blank');
+  };
+
+
   return (
     <AccordionItem value={run.id} className="bg-card border rounded-lg shadow-sm">
       <AccordionTrigger className="p-4 hover:no-underline">
@@ -274,7 +291,12 @@ const RunAccordionItem = ({ run }: { run: Run }) => {
       </AccordionTrigger>
       <AccordionContent className="p-4 pt-0">
         <div className="space-y-2 mt-4">
-          <h4 className="font-semibold mb-2">Pontos da Rota</h4>
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="font-semibold">Pontos da Rota</h4>
+             <Button variant="outline" size="sm" onClick={handleViewRealTimeRoute} disabled={!run.locationHistory || run.locationHistory.length < 1}>
+                <Route className="mr-2 h-4 w-4"/> Ver Trajeto
+             </Button>
+          </div>
           {run.stops.map((stop, index) => {
             const { icon: Icon, color, label } = getStatusInfo(stop.status);
             const isCompleted = stop.status === 'COMPLETED';
