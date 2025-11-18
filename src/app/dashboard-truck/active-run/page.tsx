@@ -81,19 +81,21 @@ function ActiveRunContent() {
       const runSnap = await getDoc(runRef);
 
       if (runSnap.exists()) {
-        const runData = { id: runSnap.id, ...runSnap.data() } as Run;
+        const runData = { id: runSnap.id, ...runSnap.data(), stops: runSnap.data().stops || [] } as Run;
         setRun(runData);
         // Pre-fill stop data if run is reloaded
         const initialStopData: typeof stopData = {};
-        runData.stops.forEach(stop => {
-          if (stop.status === 'IN_PROGRESS' || stop.status === 'COMPLETED') {
-            initialStopData[stop.name] = {
-              occupied: stop.collectedOccupiedCars?.toString() || '',
-              empty: stop.collectedEmptyCars?.toString() || '',
-              mileage: stop.mileageAtStop?.toString() || '',
-            }
-          }
-        });
+        if (Array.isArray(runData.stops)) {
+            runData.stops.forEach(stop => {
+              if (stop.status === 'IN_PROGRESS' || stop.status === 'COMPLETED') {
+                initialStopData[stop.name] = {
+                  occupied: stop.collectedOccupiedCars?.toString() || '',
+                  empty: stop.collectedEmptyCars?.toString() || '',
+                  mileage: stop.mileageAtStop?.toString() || '',
+                }
+              }
+            });
+        }
         setStopData(initialStopData);
       } else {
         toast({ variant: 'destructive', title: 'Erro', description: 'Acompanhamento não encontrado.' });
@@ -121,16 +123,15 @@ function ActiveRunContent() {
       const sectorId = localStorage.getItem('sectorId');
       const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
       
-      // Use dot notation to update specific fields in an array element
+      const updatedStops = [...run.stops];
+      updatedStops[stopIndex].status = 'IN_PROGRESS';
+      updatedStops[stopIndex].arrivalTime = serverTimestamp();
+
       await updateDoc(runRef, {
-        [`stops.${stopIndex}.status`]: 'IN_PROGRESS',
-        [`stops.${stopIndex}.arrivalTime`]: serverTimestamp(),
+        stops: updatedStops,
       });
 
       // Update local state to reflect the change immediately
-      const updatedStops = [...run.stops];
-      updatedStops[stopIndex].status = 'IN_PROGRESS';
-      // Note: serverTimestamp() resolves on the server, so local time is a placeholder
       updatedStops[stopIndex].arrivalTime = new Date(); 
       setRun({ ...run, stops: updatedStops });
       
@@ -158,25 +159,22 @@ function ActiveRunContent() {
       const sectorId = localStorage.getItem('sectorId');
       const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
 
-      // Use dot notation to update specific fields in an array element
-      await updateDoc(runRef, {
-        [`stops.${stopIndex}.status`]: 'COMPLETED',
-        [`stops.${stopIndex}.departureTime`]: serverTimestamp(),
-        [`stops.${stopIndex}.collectedOccupiedCars`]: Number(occupied),
-        [`stops.${stopIndex}.collectedEmptyCars`]: Number(empty),
-        [`stops.${stopIndex}.mileageAtStop`]: Number(mileage),
-      });
-
-      // Update local state to reflect the change immediately
       const updatedStops = [...run.stops];
       updatedStops[stopIndex] = {
         ...updatedStops[stopIndex],
         status: 'COMPLETED',
-        departureTime: new Date(), // Placeholder for server time
+        departureTime: serverTimestamp(),
         collectedOccupiedCars: Number(occupied),
         collectedEmptyCars: Number(empty),
         mileageAtStop: Number(mileage),
       };
+
+      await updateDoc(runRef, {
+        stops: updatedStops,
+      });
+
+      // Update local state to reflect the change immediately
+      updatedStops[stopIndex].departureTime = new Date(); // Placeholder for server time
       setRun({ ...run, stops: updatedStops });
       
       toast({ title: 'Parada finalizada!', description: `Parada em ${stopName} concluída.` });
