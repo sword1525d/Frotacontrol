@@ -1,6 +1,5 @@
 'use client';
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import dynamic from 'next/dynamic';
 import { useFirebase } from '@/firebase';
 import { collection, query, where, getDocs, onSnapshot, orderBy } from 'firebase/firestore';
 import {
@@ -19,7 +18,6 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Loader2, PlayCircle, CheckCircle, Clock, MapPin, Truck, User, LineChart, Calendar as CalendarIcon, Route } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
@@ -31,12 +29,6 @@ import { ptBR } from 'date-fns/locale';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
-
-const RealTimeMap = dynamic(() => import('./RealTimeMap'), {
-  ssr: false,
-  loading: () => <div className="flex justify-center items-center h-full"><Loader2 className="h-8 w-8 animate-spin" /></div>
-});
-
 
 // --- Tipos ---
 type StopStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELED';
@@ -80,6 +72,55 @@ type UserData = {
   sectorId: string;
 };
 
+const createOptimizedGoogleMapsUrl = (locationHistory: LocationPoint[]) => {
+  if (locationHistory.length < 2) return null;
+
+  // 1. Remover pontos de localização duplicados consecutivos para limpar os dados
+  const uniqueLocations = locationHistory.reduce((acc, point) => {
+    const lastPoint = acc[acc.length - 1];
+    if (!lastPoint || point.latitude !== lastPoint.latitude || point.longitude !== lastPoint.longitude) {
+      acc.push(point);
+    }
+    return acc;
+  }, [] as LocationPoint[]);
+
+  if (uniqueLocations.length < 2) return null;
+
+  const origin = `${uniqueLocations[0].latitude},${uniqueLocations[0].longitude}`;
+  const destination = `${uniqueLocations[uniqueLocations.length - 1].latitude},${uniqueLocations[uniqueLocations.length - 1].longitude}`;
+
+  // 2. Limitar o número de waypoints para evitar uma URL muito longa
+  const maxWaypoints = 25; // Limite seguro para Google Maps
+  const waypoints = uniqueLocations.slice(1, -1);
+  let selectedWaypoints = waypoints;
+
+  if (waypoints.length > maxWaypoints) {
+    const interval = Math.floor(waypoints.length / (maxWaypoints -1));
+    selectedWaypoints = waypoints.filter((_, index) => index % interval === 0);
+  }
+
+  const waypointsString = selectedWaypoints
+    .map(p => `${p.latitude},${p.longitude}`)
+    .join('|');
+
+  return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${waypointsString}&travelmode=driving`;
+};
+
+
+// Função para abrir o pop-up
+const openRouteInPopup = (url: string | null) => {
+  if (!url) {
+    alert('Não há dados de localização suficientes para exibir o trajeto.');
+    return;
+  }
+  const width = 800;
+  const height = 600;
+  const left = (window.screen.width / 2) - (width / 2);
+  const top = (window.screen.height / 2) - (height / 2);
+  window.open(url, 'mapPopup', `width=${width},height=${height},top=${top},left=${left}`);
+};
+
+
 // --- Componente Principal ---
 const AdminDashboardPage = () => {
   const { firestore } = useFirebase();
@@ -89,7 +130,6 @@ const AdminDashboardPage = () => {
   const [user, setUser] = useState<UserData | null>(null);
   const [activeRuns, setActiveRuns] = useState<Run[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedRunForMap, setSelectedRunForMap] = useState<Run | null>(null);
 
   // Efeito para carregar dados do usuário da sessão
   useEffect(() => {
@@ -154,6 +194,15 @@ const AdminDashboardPage = () => {
         }
     }, [firestore, user, toast]);
 
+    const handleViewRoute = (locationHistory: LocationPoint[] | undefined) => {
+        if (!locationHistory || locationHistory.length < 2) {
+            toast({ variant: 'destructive', title: 'Sem dados', description: 'Não há dados de localização para esta corrida.' });
+            return;
+        }
+        const url = createOptimizedGoogleMapsUrl(locationHistory);
+        openRouteInPopup(url);
+    };
+
 
   if (!user) {
      return <div className="flex justify-center items-center h-screen"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -172,38 +221,17 @@ const AdminDashboardPage = () => {
             <RealTimeDashboard 
               activeRuns={activeRuns} 
               isLoading={isLoading}
-              onViewRoute={setSelectedRunForMap}
+              onViewRoute={handleViewRoute}
             />
         </TabsContent>
         <TabsContent value="history">
             <HistoryDashboard 
               fetchCompletedRuns={fetchCompletedRuns} 
-              onViewRoute={setSelectedRunForMap}
+              onViewRoute={handleViewRoute}
             />
         </TabsContent>
       </Tabs>
       </main>
-
-      <Dialog open={!!selectedRunForMap} onOpenChange={(open) => !open && setSelectedRunForMap(null)}>
-        <DialogContent className="max-w-4xl h-[80vh]">
-          <DialogHeader>
-            <DialogTitle>Trajeto da Corrida</DialogTitle>
-            <DialogDescription>
-              Visualização do trajeto para o veículo {selectedRunForMap?.vehicleId} dirigido por {selectedRunForMap?.driverName}.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="h-full w-full py-4">
-             {selectedRunForMap?.locationHistory && selectedRunForMap.locationHistory.length > 0 ? (
-               <RealTimeMap locationHistory={selectedRunForMap.locationHistory} />
-             ) : (
-                <div className="flex items-center justify-center h-full text-muted-foreground">
-                  Nenhum dado de localização disponível para esta corrida.
-                </div>
-             )}
-          </div>
-        </DialogContent>
-      </Dialog>
-
     </div>
   );
 };
@@ -243,7 +271,7 @@ const Header = () => {
 
 
 // --- Componente Aba Tempo Real ---
-const RealTimeDashboard = ({ activeRuns, isLoading, onViewRoute }: { activeRuns: Run[], isLoading: boolean, onViewRoute: (run: Run) => void }) => {
+const RealTimeDashboard = ({ activeRuns, isLoading, onViewRoute }: { activeRuns: Run[], isLoading: boolean, onViewRoute: (locationHistory: LocationPoint[] | undefined) => void }) => {
   if (isLoading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
@@ -266,7 +294,7 @@ const RealTimeDashboard = ({ activeRuns, isLoading, onViewRoute }: { activeRuns:
 };
 
 // --- Componente Item do Acordeão de Corrida ---
-const RunAccordionItem = ({ run, onViewRoute }: { run: Run, onViewRoute: (run: Run) => void }) => {
+const RunAccordionItem = ({ run, onViewRoute }: { run: Run, onViewRoute: (locationHistory: LocationPoint[] | undefined) => void }) => {
   const completedStops = run.stops.filter(s => s.status === 'COMPLETED').length;
   const totalStops = run.stops.length;
   const progress = totalStops > 0 ? (completedStops / totalStops) * 100 : 0;
@@ -313,7 +341,7 @@ const RunAccordionItem = ({ run, onViewRoute }: { run: Run, onViewRoute: (run: R
         <div className="space-y-2 mt-4">
           <div className="flex justify-between items-center mb-2">
             <h4 className="font-semibold">Pontos da Rota</h4>
-             <Button variant="outline" size="sm" onClick={() => onViewRoute(run)} disabled={!run.locationHistory || run.locationHistory.length < 2}>
+             <Button variant="outline" size="sm" onClick={() => onViewRoute(run.locationHistory)} disabled={!run.locationHistory || run.locationHistory.length < 2}>
                 <Route className="mr-2 h-4 w-4"/> Ver Trajeto
             </Button>
           </div>
@@ -343,7 +371,7 @@ const RunAccordionItem = ({ run, onViewRoute }: { run: Run, onViewRoute: (run: R
 }
 
 // --- Componente Aba Histórico ---
-const HistoryDashboard = ({ fetchCompletedRuns, onViewRoute }: { fetchCompletedRuns: () => Promise<Run[]>, onViewRoute: (run: Run) => void }) => {
+const HistoryDashboard = ({ fetchCompletedRuns, onViewRoute }: { fetchCompletedRuns: () => Promise<Run[]>, onViewRoute: (locationHistory: LocationPoint[] | undefined) => void }) => {
     const [allRuns, setAllRuns] = useState<Run[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [date, setDate] = useState<DateRange | undefined>({
@@ -485,7 +513,7 @@ const KpiCard = ({ title, value }: { title: string, value: string }) => (
     </Card>
 );
 
-const HistoryTableRow = ({ run, onViewRoute }: { run: Run, onViewRoute: (run: Run) => void }) => {
+const HistoryTableRow = ({ run, onViewRoute }: { run: Run, onViewRoute: (locationHistory: LocationPoint[] | undefined) => void }) => {
     const duration = run.endTime && run.startTime ? Math.round((run.endTime.seconds - run.startTime.seconds) / 60) : 0;
     
     return (
@@ -497,7 +525,7 @@ const HistoryTableRow = ({ run, onViewRoute }: { run: Run, onViewRoute: (run: Ru
             <TableCell>{run.vehicleId}</TableCell>
             <TableCell className="text-right">{duration} min</TableCell>
             <TableCell className="text-right">
-                <Button variant="outline" size="sm" onClick={() => onViewRoute(run)} disabled={!run.locationHistory || run.locationHistory.length < 2}>
+                <Button variant="outline" size="sm" onClick={() => onViewRoute(run.locationHistory)} disabled={!run.locationHistory || run.locationHistory.length < 2}>
                   Ver Trajeto
                 </Button>
             </TableCell>
