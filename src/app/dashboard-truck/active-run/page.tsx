@@ -1,0 +1,347 @@
+'use client';
+
+import { Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { useEffect, useState, useCallback } from 'react';
+import { useFirebase } from '@/firebase';
+import { doc, getDoc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
+import { useToast } from '@/hooks/use-toast';
+import { ArrowLeft, CheckCircle2, Circle, Loader2, Milestone, Truck, Car, Package } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
+
+type StopStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
+
+type Stop = {
+  name: string;
+  status: StopStatus;
+  arrivalTime: any;
+  departureTime: any;
+  collectedCars: number | null;
+  collectedItems: number | null;
+  mileageAtStop: number | null;
+};
+
+type Run = {
+  id: string;
+  driverName: string;
+  vehicleId: string;
+  startMileage: number;
+  startTime: any;
+  status: 'IN_PROGRESS' | 'COMPLETED';
+  stops: Stop[];
+  endTime: any;
+  endMileage: number | null;
+};
+
+function ActiveRunContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { firestore, user } = useFirebase();
+  const { toast } = useToast();
+
+  const [run, setRun] = useState<Run | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [stopData, setStopData] = useState<{ [key: string]: { cars: string; items: string; mileage: string } }>({});
+  
+  const runId = searchParams.get('id');
+
+  const fetchRun = useCallback(async () => {
+    if (!firestore || !user || !runId) return;
+    setIsLoading(true);
+    try {
+      const companyId = localStorage.getItem('companyId');
+      const sectorId = localStorage.getItem('sectorId');
+      if (!companyId || !sectorId) {
+        throw new Error('Informações de empresa/setor não encontradas.');
+      }
+      
+      const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
+      const runSnap = await getDoc(runRef);
+
+      if (runSnap.exists()) {
+        setRun({ id: runSnap.id, ...runSnap.data() } as Run);
+      } else {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Acompanhamento não encontrado.' });
+        router.push('/dashboard-truck');
+      }
+    } catch (error) {
+      console.error("Erro ao buscar acompanhamento:", error);
+      toast({ variant: 'destructive', title: 'Erro', description: 'Não foi possível carregar os dados do acompanhamento.' });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [firestore, user, runId, router, toast]);
+
+  useEffect(() => {
+    fetchRun();
+  }, [fetchRun]);
+
+  const handleRegisterArrival = async (stopIndex: number) => {
+    if (!run || !firestore || !runId) return;
+
+    const updatedStops = [...run.stops];
+    if (updatedStops[stopIndex].status !== 'PENDING') return;
+
+    updatedStops[stopIndex] = {
+      ...updatedStops[stopIndex],
+      status: 'IN_PROGRESS',
+      arrivalTime: serverTimestamp(),
+    };
+
+    try {
+      const companyId = localStorage.getItem('companyId');
+      const sectorId = localStorage.getItem('sectorId');
+      const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
+      await updateDoc(runRef, { stops: updatedStops });
+      setRun({ ...run, stops: updatedStops });
+      toast({ title: 'Chegada registrada!', description: `Você chegou em ${run.stops[stopIndex].name}.` });
+    } catch (error) {
+      console.error("Erro ao registrar chegada: ", error);
+      toast({ variant: 'destructive', title: 'Erro', description: 'Não foi possível registrar a chegada.' });
+    }
+  };
+
+  const handleFinishStop = async (stopIndex: number) => {
+    if (!run || !firestore || !runId) return;
+
+    const stopName = run.stops[stopIndex].name;
+    const currentStopData = stopData[stopName] || { cars: '', items: '', mileage: '' };
+    const { cars, items, mileage } = currentStopData;
+
+    if (!cars || !items || !mileage) {
+      toast({ variant: 'destructive', title: 'Campos obrigatórios', description: 'Preencha todos os campos para finalizar a parada.' });
+      return;
+    }
+
+    const updatedStops = [...run.stops];
+    updatedStops[stopIndex] = {
+      ...updatedStops[stopIndex],
+      status: 'COMPLETED',
+      departureTime: serverTimestamp(),
+      collectedCars: Number(cars),
+      collectedItems: Number(items),
+      mileageAtStop: Number(mileage),
+    };
+    
+    try {
+      const companyId = localStorage.getItem('companyId');
+      const sectorId = localStorage.getItem('sectorId');
+      const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
+      await updateDoc(runRef, { stops: updatedStops });
+      setRun({ ...run, stops: updatedStops });
+      toast({ title: 'Parada finalizada!', description: `Parada em ${stopName} concluída.` });
+    } catch (error) {
+       console.error("Erro ao finalizar parada: ", error);
+       toast({ variant: 'destructive', title: 'Erro', description: 'Não foi possível finalizar a parada.' });
+    }
+  };
+
+  const handleStopDataChange = (stopName: string, field: 'cars' | 'items' | 'mileage', value: string) => {
+    setStopData(prev => ({
+        ...prev,
+        [stopName]: {
+            ...prev[stopName],
+            [field]: value
+        }
+    }));
+  };
+  
+  const handleFinishRun = async () => {
+    if (!run || !firestore || !runId) return;
+    
+    const lastStop = run.stops[run.stops.length - 1];
+    if (!lastStop || !lastStop.mileageAtStop) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'A quilometragem da última parada é necessária.' });
+        return;
+    }
+
+    try {
+        const companyId = localStorage.getItem('companyId');
+        const sectorId = localStorage.getItem('sectorId');
+        const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
+
+        await updateDoc(runRef, {
+            status: 'COMPLETED',
+            endTime: serverTimestamp(),
+            endMileage: lastStop.mileageAtStop
+        });
+
+        toast({ title: 'Acompanhamento Finalizado!', description: 'Sua rota foi concluída com sucesso.' });
+        router.push('/dashboard-truck');
+
+    } catch (error) {
+        console.error("Erro ao finalizar acompanhamento: ", error);
+        toast({ variant: 'destructive', title: 'Erro', description: 'Não foi possível finalizar o acompanhamento.' });
+    }
+  }
+
+  const allStopsCompleted = run?.stops.every(s => s.status === 'COMPLETED');
+
+
+  if (isLoading || !run) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+  
+  return (
+    <div className="flex flex-col min-h-screen font-sans bg-gray-100">
+      <header className="p-4 flex items-center justify-between text-foreground bg-card border-b sticky top-0 z-10">
+        <Button variant="ghost" size="icon" onClick={() => router.back()}>
+          <ArrowLeft />
+        </Button>
+        <h1 className="text-lg font-semibold">Acompanhamento Ativo</h1>
+        <div className="w-8"></div>
+      </header>
+
+      <main className="flex-1 p-4 space-y-4">
+        <Card>
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2"><Truck className="text-primary"/> Detalhes da Rota</CardTitle>
+                <CardDescription>Veículo: {run.vehicleId} | Motorista: {run.driverName}</CardDescription>
+            </CardHeader>
+        </Card>
+
+        {run.stops.map((stop, index) => {
+            const stopNameIdentifier = stop.name.replace(/\s+/g, '-');
+            const isPending = stop.status === 'PENDING';
+            const isInProgress = stop.status === 'IN_PROGRESS';
+            const isCompleted = stop.status === 'COMPLETED';
+            
+            const canStartThisStop = isPending && (index === 0 || run.stops[index-1].status === 'COMPLETED');
+            
+            return (
+                <Card key={index} className={isCompleted ? 'bg-green-50 border-green-200' : 'bg-card'}>
+                    <CardHeader>
+                        <CardTitle className="flex items-center justify-between">
+                            <span className="flex items-center gap-2">
+                                {isCompleted ? <CheckCircle2 className="text-green-600"/> : <Milestone className="text-muted-foreground"/>}
+                                {stop.name}
+                            </span>
+                             <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
+                                isCompleted ? 'bg-green-100 text-green-800' : 
+                                isInProgress ? 'bg-orange-100 text-orange-800' :
+                                'bg-gray-100 text-gray-800'
+                             }`}>
+                                {isCompleted ? 'CONCLUÍDO' : isInProgress ? 'EM ANDAMENTO' : 'PENDENTE'}
+                            </span>
+                        </CardTitle>
+                    </CardHeader>
+
+                    {isInProgress && (
+                        <CardContent className="space-y-4 pt-0">
+                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                <div className="space-y-1">
+                                    <Label htmlFor={`cars-${stopNameIdentifier}`} className="flex items-center gap-1 text-sm"><Car size={14}/> Carros</Label>
+                                    <Input id={`cars-${stopNameIdentifier}`} type="number" placeholder="Qtd." 
+                                        value={stopData[stop.name]?.cars || ''}
+                                        onChange={(e) => handleStopDataChange(stop.name, 'cars', e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label htmlFor={`items-${stopNameIdentifier}`} className="flex items-center gap-1 text-sm"><Package size={14}/> Itens</Label>
+                                    <Input id={`items-${stopNameIdentifier}`} type="number" placeholder="Qtd." 
+                                        value={stopData[stop.name]?.items || ''}
+                                        onChange={(e) => handleStopDataChange(stop.name, 'items', e.target.value)}
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <Label htmlFor={`mileage-${stopNameIdentifier}`} className="flex items-center gap-1 text-sm"><Milestone size={14}/> KM</Label>
+                                    <Input id={`mileage-${stopNameIdentifier}`} type="number" placeholder="Quilometragem"
+                                        value={stopData[stop.name]?.mileage || ''}
+                                        onChange={(e) => handleStopDataChange(stop.name, 'mileage', e.target.value)}
+                                    />
+                                </div>
+                           </div>
+                        </CardContent>
+                    )}
+                    
+                    {isCompleted && (
+                         <CardContent className="space-y-2 pt-0 text-sm text-muted-foreground">
+                            <p>Carros: <strong>{stop.collectedCars}</strong></p>
+                            <p>Itens: <strong>{stop.collectedItems}</strong></p>
+                            <p>KM na Parada: <strong>{stop.mileageAtStop}</strong></p>
+                        </CardContent>
+                    )}
+
+                    <CardFooter>
+                       {isPending && (
+                            <Button onClick={() => handleRegisterArrival(index)} disabled={!canStartThisStop}>
+                                Registrar Chegada
+                            </Button>
+                       )}
+                       {isInProgress && (
+                            <Button onClick={() => handleFinishStop(index)} variant="secondary" className="bg-green-600 text-white hover:bg-green-700">
+                                <CheckCircle2 className="mr-2 h-4 w-4"/> Finalizar Parada
+                            </Button>
+                       )}
+                    </CardFooter>
+                </Card>
+            )
+        })}
+        
+        {allStopsCompleted && (
+            <Card className="bg-blue-50 border-blue-200">
+                <CardHeader>
+                    <CardTitle>Rota Concluída!</CardTitle>
+                    <CardDescription>Todos os pontos de parada foram finalizados. Você pode finalizar o acompanhamento.</CardDescription>
+                </CardHeader>
+                <CardFooter>
+                    <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                            <Button className="w-full sm:w-auto">Finalizar Acompanhamento</Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                            <AlertDialogHeader>
+                                <AlertDialogTitle>Confirmar finalização?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                    Ao confirmar, a rota será marcada como concluída e não poderá ser reaberta.
+                                    A quilometragem da última parada será salva como a quilometragem final.
+                                </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                <AlertDialogAction onClick={handleFinishRun}>Confirmar e Finalizar</AlertDialogAction>
+                            </AlertDialogFooter>
+                        </AlertDialogContent>
+                    </AlertDialog>
+                </CardFooter>
+            </Card>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default function ActiveRunPage() {
+    return (
+        <Suspense fallback={<div className="flex items-center justify-center min-h-screen"><Loader2 className="w-8 h-8 animate-spin"/></div>}>
+            <ActiveRunContent />
+        </Suspense>
+    )
+}

@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useFirebase } from '@/firebase';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, query, where, limit } from 'firebase/firestore';
 
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -74,10 +74,11 @@ const VehicleCard = ({ vehicle }: { vehicle: Vehicle }) => {
 export default function DashboardTruckPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const { firestore, auth } = useFirebase();
+  const { firestore, auth, user: authUser } = useFirebase();
   const [user, setUser] = useState<UserData | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [isLoadingVehicles, setIsLoadingVehicles] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
 
   // Recupera dados do usuário do localStorage
   useEffect(() => {
@@ -99,44 +100,70 @@ export default function DashboardTruckPage() {
     }
   }, [router, toast]);
   
-  // Busca os veículos
+  // Busca os veículos e corridas ativas
   useEffect(() => {
-    if (!firestore || !user) return;
-
-    const fetchVehicles = async () => {
-      setIsLoadingVehicles(true);
+    if (!firestore || !user || !authUser) return;
+    
+    const fetchData = async () => {
+      setIsLoading(true);
       try {
+        // Fetch Vehicles
         const vehiclesCol = collection(firestore, `companies/${user.companyId}/sectors/${user.sectorId}/vehicles`);
-        const querySnapshot = await getDocs(vehiclesCol);
-        
-        const vehiclesList: Vehicle[] = querySnapshot.docs
+        const vehiclesSnapshot = await getDocs(vehiclesCol);
+        const vehiclesList: Vehicle[] = vehiclesSnapshot.docs
             .map(doc => ({ id: doc.id, ...(doc.data() as Omit<Vehicle, 'id'>) }))
             .filter(v => v.isTruck)
-            // Lógica de status simulada - você precisará conectar com os dados reais de corridas
-            .map(v => ({
-                ...v,
-                status: 'NO ESTACIONAMENTO',
-            }));
+            .map(v => ({ ...v, status: 'NO ESTACIONAMENTO' })); // Default status
 
-        setVehicles(vehiclesList);
+        // Fetch active runs to update vehicle status and find user's active run
+        const runsCol = collection(firestore, `companies/${user.companyId}/sectors/${user.sectorId}/runs`);
+        const activeRunsQuery = query(runsCol, where('status', '==', 'IN_PROGRESS'));
+        const activeRunsSnapshot = await getDocs(activeRunsQuery);
+
+        const activeRunsData: { [vehicleId: string]: string } = {};
+        let userActiveRunId: string | null = null;
+        
+        activeRunsSnapshot.forEach(doc => {
+            const run = doc.data();
+            activeRunsData[run.vehicleId] = run.driverName;
+            if (run.driverId === authUser.uid) {
+                userActiveRunId = doc.id;
+            }
+        });
+
+        setActiveRunId(userActiveRunId);
+
+        // Update vehicle status based on active runs
+        const updatedVehiclesList = vehiclesList.map(vehicle => {
+            if (activeRunsData[vehicle.id]) {
+                return {
+                    ...vehicle,
+                    status: 'EM CORRIDA' as const,
+                    driverName: activeRunsData[vehicle.id]
+                };
+            }
+            return vehicle;
+        });
+        
+        setVehicles(updatedVehiclesList);
 
       } catch (error) {
-        console.error("Erro ao buscar veículos:", error);
+        console.error("Erro ao buscar dados:", error);
         toast({
           variant: 'destructive',
           title: 'Erro de Rede',
-          description: 'Não foi possível carregar os dados dos caminhões.',
+          description: 'Não foi possível carregar os dados do dashboard.',
         });
       } finally {
-        setIsLoadingVehicles(false);
+        setIsLoading(false);
       }
     };
 
-    fetchVehicles();
-    const interval = setInterval(fetchVehicles, 30000); // Atualiza a cada 30 segundos
+    fetchData();
+    const interval = setInterval(fetchData, 30000); // Atualiza a cada 30 segundos
     return () => clearInterval(interval);
 
-  }, [firestore, user, toast]);
+  }, [firestore, user, authUser, toast]);
 
   const handleLogout = () => {
     if (confirm('Tem certeza que deseja sair da conta?')) {
@@ -147,11 +174,15 @@ export default function DashboardTruckPage() {
     }
   };
 
-  const handleStartRun = () => {
-    router.push('/dashboard-truck/run');
+  const handleStartOrContinueRun = () => {
+    if (activeRunId) {
+      router.push(`/dashboard-truck/active-run?id=${activeRunId}`);
+    } else {
+      router.push('/dashboard-truck/run');
+    }
   };
 
-  if (!user) {
+  if (!user || isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-100">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -174,7 +205,7 @@ export default function DashboardTruckPage() {
             <section>
                 <h2 className="text-lg font-semibold text-gray-600 mb-3">Status dos Caminhões</h2>
                 <div className="bg-white rounded-xl p-4 shadow-sm border">
-                    {isLoadingVehicles ? (
+                    {isLoading ? (
                         <div className="text-center text-gray-500 flex items-center justify-center p-4">
                             <Loader2 className="w-5 h-5 mr-2 animate-spin"/> Carregando...
                         </div>
@@ -190,9 +221,9 @@ export default function DashboardTruckPage() {
             
             <section className="mt-6">
                 <h2 className="text-lg font-semibold text-gray-600 mb-3">Acompanhamento</h2>
-                <Button className="w-full h-20 text-lg bg-primary text-primary-foreground shadow-lg hover:bg-primary/90" onClick={handleStartRun}>
+                <Button className="w-full h-20 text-lg bg-primary text-primary-foreground shadow-lg hover:bg-primary/90" onClick={handleStartOrContinueRun}>
                     <PlayCircle className="mr-3"/>
-                    Iniciar/Acompanhar
+                    {activeRunId ? 'Continuar Acompanhamento' : 'Iniciar Acompanhamento'}
                 </Button>
             </section>
 
