@@ -41,7 +41,7 @@ const PREDEFINED_STOP_POINTS: StopPoint[] = [
 
 export default function TruckRunPage() {
   const router = useRouter();
-  const { firestore } = useFirebase();
+  const { firestore, user: authUser } = useFirebase();
   const { toast } = useToast();
 
   const [user, setUser] = useState<UserData | null>(null);
@@ -58,10 +58,10 @@ export default function TruckRunPage() {
     const companyId = localStorage.getItem('companyId');
     const sectorId = localStorage.getItem('sectorId');
 
-    if (storedUser && companyId && sectorId) {
+    if (storedUser && companyId && sectorId && authUser) {
       const parsedUser = JSON.parse(storedUser);
-      setUser({ ...parsedUser, companyId, sectorId });
-    } else {
+      setUser({ ...parsedUser, id: authUser.uid, companyId, sectorId });
+    } else if (!authUser && !isLoading) { // only redirect if auth is settled
       toast({
         variant: 'destructive',
         title: 'Erro',
@@ -69,7 +69,7 @@ export default function TruckRunPage() {
       });
       router.push('/login');
     }
-  }, [router, toast]);
+  }, [router, toast, authUser, isLoading]);
   
   useEffect(() => {
     if (!firestore || !user) return;
@@ -137,21 +137,20 @@ export default function TruckRunPage() {
           status: 'PENDING',
           arrivalTime: null,
           departureTime: null,
-          collectedCars: null,
-          collectedItems: null,
+          collectedOccupiedCars: null,
+          collectedEmptyCars: null,
           mileageAtStop: null,
         })),
-        // other fields can be null or set later
         endTime: null,
         endMileage: null,
       };
       
-      await addDoc(runsCol, newRun);
+      const docRef = await addDoc(runsCol, newRun);
 
       toast({ title: 'Sucesso', description: 'Acompanhamento iniciado! Redirecionando...' });
       
-      // Navigate to the active run page (to be created) or back to dashboard
-      setTimeout(() => router.push('/dashboard-truck'), 2000);
+      // Navigate to the active run page
+      router.push(`/dashboard-truck/active-run?id=${docRef.id}`);
 
     } catch(error) {
        console.error("Erro ao iniciar corrida: ", error);
@@ -161,7 +160,7 @@ export default function TruckRunPage() {
     }
   }
 
-  if (!user || isLoading) {
+  if (isLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -170,8 +169,8 @@ export default function TruckRunPage() {
   }
 
   return (
-    <div className="flex flex-col min-h-screen font-sans bg-background">
-      <header className="p-4 flex items-center justify-between text-foreground bg-card border-b">
+    <div className="flex flex-col min-h-screen font-sans bg-gray-50">
+      <header className="p-4 flex items-center justify-between text-foreground bg-card border-b sticky top-0 z-10">
         <Button variant="ghost" size="icon" onClick={() => router.back()}>
           <ArrowLeft />
         </Button>
@@ -250,8 +249,10 @@ export default function TruckRunPage() {
         )}
         <div className="h-20"></div>
 
+      </main>
+
         {/* Botão para Iniciar Acompanhamento */}
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-card border-t">
+        <footer className="fixed bottom-0 left-0 right-0 p-4 bg-card border-t">
           <Button 
             className="w-full text-lg h-14" 
             onClick={handleStartRun}
@@ -260,8 +261,7 @@ export default function TruckRunPage() {
             {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             INICIAR ACOMPANHAMENTO
           </Button>
-        </div>
-      </main>
+        </footer>
     </div>
   );
 }

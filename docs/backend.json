@@ -150,8 +150,8 @@
               "status": { "type": "string", "enum": ["PENDING", "COMPLETED"] },
               "arrivalTime": { "type": "string", "format": "date-time" },
               "departureTime": { "type": "string", "format": "date-time" },
-              "collectedCars": { "type": "number" },
-              "collectedItems": { "type": "number" },
+              "collectedOccupiedCars": { "type": "number" },
+              "collectedEmptyCars": { "type": "number" },
               "mileageAtStop": { "type": "number" }
             },
             "required": ["name", "status"]

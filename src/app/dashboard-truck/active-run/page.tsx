@@ -4,7 +4,7 @@ import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
 import { useFirebase } from '@/firebase';
-import { doc, getDoc, updateDoc, serverTimestamp, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,8 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, CheckCircle2, Circle, Loader2, Milestone, Truck, Car, Package } from 'lucide-react';
-import { Separator } from '@/components/ui/separator';
+import { ArrowLeft, CheckCircle2, Loader2, Milestone, Truck } from 'lucide-react';
 
 type StopStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
 
@@ -39,8 +38,8 @@ type Stop = {
   status: StopStatus;
   arrivalTime: any;
   departureTime: any;
-  collectedCars: number | null;
-  collectedItems: number | null;
+  collectedOccupiedCars: number | null;
+  collectedEmptyCars: number | null;
   mileageAtStop: number | null;
 };
 
@@ -64,7 +63,7 @@ function ActiveRunContent() {
 
   const [run, setRun] = useState<Run | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [stopData, setStopData] = useState<{ [key: string]: { cars: string; items: string; mileage: string } }>({});
+  const [stopData, setStopData] = useState<{ [key: string]: { occupied: string; empty: string; mileage: string } }>({});
   
   const runId = searchParams.get('id');
 
@@ -89,8 +88,8 @@ function ActiveRunContent() {
         runData.stops.forEach(stop => {
           if (stop.status === 'IN_PROGRESS' || stop.status === 'COMPLETED') {
             initialStopData[stop.name] = {
-              cars: stop.collectedCars?.toString() || '',
-              items: stop.collectedItems?.toString() || '',
+              occupied: stop.collectedOccupiedCars?.toString() || '',
+              empty: stop.collectedEmptyCars?.toString() || '',
               mileage: stop.mileageAtStop?.toString() || '',
             }
           }
@@ -146,10 +145,10 @@ function ActiveRunContent() {
     if (!run || !firestore || !runId) return;
 
     const stopName = run.stops[stopIndex].name;
-    const currentStopData = stopData[stopName] || { cars: '', items: '', mileage: '' };
-    const { cars, items, mileage } = currentStopData;
+    const currentStopData = stopData[stopName] || { occupied: '', empty: '', mileage: '' };
+    const { occupied, empty, mileage } = currentStopData;
 
-    if (!cars || !items || !mileage) {
+    if (!occupied || !empty || !mileage) {
       toast({ variant: 'destructive', title: 'Campos obrigatórios', description: 'Preencha todos os campos para finalizar a parada.' });
       return;
     }
@@ -163,8 +162,8 @@ function ActiveRunContent() {
       await updateDoc(runRef, {
         [`stops.${stopIndex}.status`]: 'COMPLETED',
         [`stops.${stopIndex}.departureTime`]: serverTimestamp(),
-        [`stops.${stopIndex}.collectedCars`]: Number(cars),
-        [`stops.${stopIndex}.collectedItems`]: Number(items),
+        [`stops.${stopIndex}.collectedOccupiedCars`]: Number(occupied),
+        [`stops.${stopIndex}.collectedEmptyCars`]: Number(empty),
         [`stops.${stopIndex}.mileageAtStop`]: Number(mileage),
       });
 
@@ -174,8 +173,8 @@ function ActiveRunContent() {
         ...updatedStops[stopIndex],
         status: 'COMPLETED',
         departureTime: new Date(), // Placeholder for server time
-        collectedCars: Number(cars),
-        collectedItems: Number(items),
+        collectedOccupiedCars: Number(occupied),
+        collectedEmptyCars: Number(empty),
         mileageAtStop: Number(mileage),
       };
       setRun({ ...run, stops: updatedStops });
@@ -187,7 +186,7 @@ function ActiveRunContent() {
     }
   };
 
-  const handleStopDataChange = (stopName: string, field: 'cars' | 'items' | 'mileage', value: string) => {
+  const handleStopDataChange = (stopName: string, field: 'occupied' | 'empty' | 'mileage', value: string) => {
     setStopData(prev => ({
         ...prev,
         [stopName]: {
@@ -285,21 +284,21 @@ function ActiveRunContent() {
                         <CardContent className="space-y-4 pt-0">
                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <div className="space-y-1">
-                                    <Label htmlFor={`cars-${stopNameIdentifier}`} className="flex items-center gap-1 text-sm"><Car size={14}/> Carros</Label>
-                                    <Input id={`cars-${stopNameIdentifier}`} type="number" placeholder="Qtd." 
-                                        value={stopData[stop.name]?.cars || ''}
-                                        onChange={(e) => handleStopDataChange(stop.name, 'cars', e.target.value)}
+                                    <Label htmlFor={`occupied-${stopNameIdentifier}`} className="text-sm">Carros ocupados</Label>
+                                    <Input id={`occupied-${stopNameIdentifier}`} type="number" placeholder="Qtd." 
+                                        value={stopData[stop.name]?.occupied || ''}
+                                        onChange={(e) => handleStopDataChange(stop.name, 'occupied', e.target.value)}
                                     />
                                 </div>
                                 <div className="space-y-1">
-                                    <Label htmlFor={`items-${stopNameIdentifier}`} className="flex items-center gap-1 text-sm"><Package size={14}/> Itens</Label>
-                                    <Input id={`items-${stopNameIdentifier}`} type="number" placeholder="Qtd." 
-                                        value={stopData[stop.name]?.items || ''}
-                                        onChange={(e) => handleStopDataChange(stop.name, 'items', e.target.value)}
+                                    <Label htmlFor={`empty-${stopNameIdentifier}`} className="text-sm">Carros vazios</Label>
+                                    <Input id={`empty-${stopNameIdentifier}`} type="number" placeholder="Qtd." 
+                                        value={stopData[stop.name]?.empty || ''}
+                                        onChange={(e) => handleStopDataChange(stop.name, 'empty', e.target.value)}
                                     />
                                 </div>
                                 <div className="space-y-1">
-                                    <Label htmlFor={`mileage-${stopNameIdentifier}`} className="flex items-center gap-1 text-sm"><Milestone size={14}/> KM</Label>
+                                    <Label htmlFor={`mileage-${stopNameIdentifier}`} className="text-sm">Km atual</Label>
                                     <Input id={`mileage-${stopNameIdentifier}`} type="number" placeholder="Quilometragem"
                                         value={stopData[stop.name]?.mileage || ''}
                                         onChange={(e) => handleStopDataChange(stop.name, 'mileage', e.target.value)}
@@ -311,8 +310,8 @@ function ActiveRunContent() {
                     
                     {isCompleted && (
                          <CardContent className="space-y-2 pt-0 text-sm text-muted-foreground">
-                            <p>Carros: <strong>{stop.collectedCars}</strong></p>
-                            <p>Itens: <strong>{stop.collectedItems}</strong></p>
+                            <p>Carros ocupados: <strong>{stop.collectedOccupiedCars}</strong></p>
+                            <p>Carros vazios: <strong>{stop.collectedEmptyCars}</strong></p>
                             <p>KM na Parada: <strong>{stop.mileageAtStop}</strong></p>
                         </CardContent>
                     )}
