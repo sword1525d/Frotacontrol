@@ -156,6 +156,19 @@
             },
             "required": ["name", "status"]
           }
+        },
+        "locationHistory": {
+          "type": "array",
+          "description": "Stores the history of GPS locations for the run.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "latitude": { "type": "number" },
+              "longitude": { "type": "number" },
+              "timestamp": { "type": "string", "format": "date-time" }
+            },
+            "required": ["latitude", "longitude", "timestamp"]
+          }
         }
       },
       "required": ["driverId", "driverName", "vehicleId", "startMileage", "startTime", "status", "stops"]

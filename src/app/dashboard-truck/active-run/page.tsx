@@ -2,9 +2,9 @@
 
 import { Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useFirebase } from '@/firebase';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -29,7 +29,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { useToast } from '@/hooks/use-toast';
-import { ArrowLeft, CheckCircle2, Loader2, Milestone, Truck } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, Loader2, Milestone } from 'lucide-react';
 
 type StopStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED';
 
@@ -43,6 +43,12 @@ type Stop = {
   mileageAtStop: number | null;
 };
 
+type LocationPoint = {
+  latitude: number;
+  longitude: number;
+  timestamp: any;
+}
+
 type Run = {
   id: string;
   driverName: string;
@@ -53,7 +59,77 @@ type Run = {
   stops: Stop[];
   endTime: any;
   endMileage: number | null;
+  locationHistory?: LocationPoint[];
 };
+
+// Custom hook for location tracking
+const useLocationTracking = (runId: string | null, isActive: boolean) => {
+  const { firestore } = useFirebase();
+  const { toast } = useToast();
+  const watchIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (!runId || !isActive || !firestore) {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      return;
+    }
+
+    const companyId = localStorage.getItem('companyId');
+    const sectorId = localStorage.getItem('sectorId');
+
+    if (!companyId || !sectorId) {
+      toast({ variant: 'destructive', title: 'Erro', description: 'Informações de empresa/setor não encontradas.' });
+      return;
+    }
+
+    const runRef = doc(firestore, `companies/${companyId}/sectors/${sectorId}/runs`, runId);
+
+    const handleSuccess = (position: GeolocationPosition) => {
+      const { latitude, longitude } = position.coords;
+      const newLocation: LocationPoint = {
+        latitude,
+        longitude,
+        timestamp: new Date(), // Using client time for location timestamp
+      };
+
+      updateDoc(runRef, {
+        locationHistory: arrayUnion(newLocation)
+      }).catch(error => {
+        console.error("Erro ao salvar localização: ", error);
+        // Don't toast every time, could be overwhelming
+      });
+    };
+
+    const handleError = (error: GeolocationPositionError) => {
+      console.error("Erro de geolocalização: ", error);
+      toast({ variant: 'destructive', title: 'Erro de Localização', description: `Não foi possível obter sua localização: ${error.message}` });
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
+
+    if ('geolocation' in navigator) {
+      watchIdRef.current = navigator.geolocation.watchPosition(handleSuccess, handleError, {
+        enableHighAccuracy: true,
+        timeout: 20000,
+        maximumAge: 1000,
+      });
+    } else {
+      toast({ variant: 'destructive', title: 'Erro', description: 'Geolocalização não é suportada neste navegador.' });
+    }
+
+    return () => {
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+    };
+  }, [runId, isActive, firestore, toast]);
+};
+
 
 function ActiveRunContent() {
   const router = useRouter();
@@ -66,6 +142,9 @@ function ActiveRunContent() {
   const [stopData, setStopData] = useState<{ [key: string]: { occupied: string; empty: string; mileage: string } }>({});
   
   const runId = searchParams.get('id');
+
+  // Activate location tracking
+  useLocationTracking(runId, run?.status === 'IN_PROGRESS');
 
   const fetchRun = useCallback(async () => {
     if (!firestore || !user || !runId) return;
@@ -82,12 +161,10 @@ function ActiveRunContent() {
 
       if (runSnap.exists()) {
         const runData = runSnap.data();
-        // Ensure runData.stops is always an array
         const stopsArray = Array.isArray(runData.stops) ? runData.stops : [];
         const transformedRunData = { id: runSnap.id, ...runData, stops: stopsArray } as Run;
         setRun(transformedRunData);
         
-        // Pre-fill stop data if run is reloaded
         const initialStopData: typeof stopData = {};
         if (Array.isArray(transformedRunData.stops)) {
             transformedRunData.stops.forEach(stop => {
@@ -123,7 +200,7 @@ function ActiveRunContent() {
     const stopsArray = Array.isArray(run.stops) ? run.stops : [];
     if (stopsArray.length === 0 || stopsArray[stopIndex].status !== 'PENDING') return;
     
-    const arrivalTime = new Date(); // Use client time
+    const arrivalTime = new Date();
 
     try {
       const companyId = localStorage.getItem('companyId');
@@ -140,7 +217,6 @@ function ActiveRunContent() {
       
       setRun(prevRun => {
           if (!prevRun) return null;
-          // Create a new stops array to ensure React detects the change
           const newStops = prevRun.stops.map((stop, index) => {
               if (index === stopIndex) {
                   return { ...stop, status: 'IN_PROGRESS' as StopStatus, arrivalTime: arrivalTime };
@@ -172,7 +248,7 @@ function ActiveRunContent() {
       return;
     }
     
-    const departureTime = new Date(); // Use client time
+    const departureTime = new Date();
 
     try {
       const companyId = localStorage.getItem('companyId');
@@ -250,7 +326,7 @@ function ActiveRunContent() {
 
         await updateDoc(runRef, {
             status: 'COMPLETED',
-            endTime: new Date(), // Use client time
+            endTime: new Date(),
             endMileage: lastStop.mileageAtStop
         });
 
