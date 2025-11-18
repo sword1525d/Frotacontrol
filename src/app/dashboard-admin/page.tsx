@@ -10,6 +10,13 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@/components/ui/dialog';
+import {
   Accordion,
   AccordionContent,
   AccordionItem,
@@ -18,7 +25,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, PlayCircle, CheckCircle, Clock, MapPin, Truck, User, LineChart, Calendar as CalendarIcon, Route } from 'lucide-react';
+import { Loader2, PlayCircle, CheckCircle, Clock, MapPin, Truck, User, LineChart, Calendar as CalendarIcon, Route, X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -29,6 +36,8 @@ import { ptBR } from 'date-fns/locale';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { DateRange } from 'react-day-picker';
+import dynamic from 'next/dynamic';
+
 
 // --- Tipos ---
 type StopStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELED';
@@ -83,27 +92,11 @@ type VehicleStatus = Vehicle & {
   driverName?: string;
 }
 
-const createAppleMapsUrl = (locationHistory: LocationPoint[]) => {
-  if (locationHistory.length < 2) return null;
-
-  const origin = `${locationHistory[0].latitude},${locationHistory[0].longitude}`;
-  const destination = `${locationHistory[locationHistory.length - 1].latitude},${locationHistory[locationHistory.length - 1].longitude}`;
-
-  return `https://maps.apple.com/?saddr=${origin}&daddr=${destination}&dirflg=d`;
-};
-
-
-const openRouteInPopup = (url: string | null) => {
-  if (!url) {
-    alert('Não há dados de localização suficientes para exibir o trajeto.');
-    return;
-  }
-  const width = 800;
-  const height = 600;
-  const left = (window.screen.width / 2) - (width / 2);
-  const top = (window.screen.height / 2) - (height / 2);
-  window.open(url, 'mapPopup', `width=${width},height=${height},top=${top},left=${left}`);
-};
+// Carregamento dinâmico do mapa para evitar problemas com SSR
+const RealTimeMap = dynamic(() => import('./RealTimeMap'), {
+  ssr: false,
+  loading: () => <div className="flex justify-center items-center h-full"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+});
 
 
 // --- Componente Principal ---
@@ -116,6 +109,7 @@ const AdminDashboardPage = () => {
   const [activeRuns, setActiveRuns] = useState<Run[]>([]);
   const [vehicleStatuses, setVehicleStatuses] = useState<VehicleStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedRunForMap, setSelectedRunForMap] = useState<Run | null>(null);
 
   // Efeito para carregar dados do usuário da sessão
   useEffect(() => {
@@ -198,21 +192,21 @@ const AdminDashboardPage = () => {
         try {
             const querySnapshot = await getDocs(runsQuery);
             const runs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Run));
+            // Ordena os resultados no cliente
             return runs.sort((a, b) => (b.endTime?.seconds || 0) - (a.endTime?.seconds || 0));
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error fetching completed runs: ", error);
             toast({ variant: 'destructive', title: 'Erro ao buscar histórico', description: 'Não foi possível carregar o histórico. Tente recarregar a página.' });
             return [];
         }
     }, [firestore, user, toast]);
 
-    const handleViewRoute = (locationHistory: LocationPoint[] | undefined) => {
-        if (!locationHistory || locationHistory.length < 2) {
-            toast({ variant: 'destructive', title: 'Sem dados', description: 'Não há dados de localização para esta corrida.' });
+    const handleViewRoute = (run: Run) => {
+        if (!run.locationHistory || run.locationHistory.length < 2) {
+            toast({ variant: 'destructive', title: 'Sem dados', description: 'Não há dados de localização suficientes para exibir o trajeto.' });
             return;
         }
-        const url = createAppleMapsUrl(locationHistory);
-        openRouteInPopup(url);
+        setSelectedRunForMap(run);
     };
 
 
@@ -247,6 +241,24 @@ const AdminDashboardPage = () => {
             </TabsContent>
         </Tabs>
       </main>
+      
+      {/* Modal para exibir o mapa */}
+      <Dialog open={selectedRunForMap !== null} onOpenChange={(isOpen) => !isOpen && setSelectedRunForMap(null)}>
+        <DialogContent className="max-w-4xl h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Trajeto da Corrida - {selectedRunForMap?.driverName} ({selectedRunForMap?.vehicleId})</DialogTitle>
+            <DialogDescription>
+              Visualização do trajeto completo da corrida.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="h-[calc(80vh-100px)] bg-muted rounded-md">
+            {selectedRunForMap?.locationHistory && (
+              <RealTimeMap locationHistory={selectedRunForMap.locationHistory} />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 };
@@ -328,7 +340,7 @@ const VehicleStatusCard = ({ vehicle }: { vehicle: VehicleStatus }) => {
 
 
 // --- Componente Aba Tempo Real ---
-const RealTimeDashboard = ({ activeRuns, isLoading, onViewRoute }: { activeRuns: Run[], isLoading: boolean, onViewRoute: (locationHistory: LocationPoint[] | undefined) => void }) => {
+const RealTimeDashboard = ({ activeRuns, isLoading, onViewRoute }: { activeRuns: Run[], isLoading: boolean, onViewRoute: (run: Run) => void }) => {
   if (isLoading) {
     return <div className="flex justify-center items-center h-64"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
@@ -345,13 +357,13 @@ const RealTimeDashboard = ({ activeRuns, isLoading, onViewRoute }: { activeRuns:
   
   return (
       <Accordion type="single" collapsible className="w-full space-y-4 max-w-4xl mx-auto" defaultValue={activeRuns[0]?.id}>
-        {activeRuns.map(run => <RunAccordionItem key={run.id} run={run} onViewRoute={onViewRoute} />)}
+        {activeRuns.map(run => <RunAccordionItem key={run.id} run={run} onViewRoute={() => onViewRoute(run)} />)}
       </Accordion>
   );
 };
 
 // --- Componente Item do Acordeão de Corrida ---
-const RunAccordionItem = ({ run, onViewRoute }: { run: Run, onViewRoute: (locationHistory: LocationPoint[] | undefined) => void }) => {
+const RunAccordionItem = ({ run, onViewRoute }: { run: Run, onViewRoute: () => void }) => {
   const completedStops = run.stops.filter(s => s.status === 'COMPLETED').length;
   const totalStops = run.stops.length;
   const progress = totalStops > 0 ? (completedStops / totalStops) * 100 : 0;
@@ -398,7 +410,7 @@ const RunAccordionItem = ({ run, onViewRoute }: { run: Run, onViewRoute: (locati
         <div className="space-y-2 mt-4">
           <div className="flex justify-between items-center mb-2">
             <h4 className="font-semibold">Pontos da Rota</h4>
-             <Button variant="outline" size="sm" onClick={() => onViewRoute(run.locationHistory)} disabled={!run.locationHistory || run.locationHistory.length < 2}>
+             <Button variant="outline" size="sm" onClick={onViewRoute}>
                 <Route className="mr-2 h-4 w-4"/> Ver Trajeto
             </Button>
           </div>
@@ -428,7 +440,7 @@ const RunAccordionItem = ({ run, onViewRoute }: { run: Run, onViewRoute: (locati
 }
 
 // --- Componente Aba Histórico ---
-const HistoryDashboard = ({ fetchCompletedRuns, onViewRoute }: { fetchCompletedRuns: () => Promise<Run[]>, onViewRoute: (locationHistory: LocationPoint[] | undefined) => void }) => {
+const HistoryDashboard = ({ fetchCompletedRuns, onViewRoute }: { fetchCompletedRuns: () => Promise<Run[]>, onViewRoute: (run: Run) => void }) => {
     const [allRuns, setAllRuns] = useState<Run[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [date, setDate] = useState<DateRange | undefined>({
@@ -546,7 +558,7 @@ const HistoryDashboard = ({ fetchCompletedRuns, onViewRoute }: { fetchCompletedR
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {filteredRuns.length > 0 ? filteredRuns.map(run => <HistoryTableRow key={run.id} run={run} onViewRoute={onViewRoute} />) : <TableRow><TableCell colSpan={4} className="text-center h-24">Nenhuma corrida encontrada</TableCell></TableRow>}
+                                    {filteredRuns.length > 0 ? filteredRuns.map(run => <HistoryTableRow key={run.id} run={run} onViewRoute={() => onViewRoute(run)} />) : <TableRow><TableCell colSpan={4} className="text-center h-24">Nenhuma corrida encontrada</TableCell></TableRow>}
                                 </TableBody>
                             </Table>
                         </div>}
@@ -570,7 +582,7 @@ const KpiCard = ({ title, value }: { title: string, value: string }) => (
     </Card>
 );
 
-const HistoryTableRow = ({ run, onViewRoute }: { run: Run, onViewRoute: (locationHistory: LocationPoint[] | undefined) => void }) => {
+const HistoryTableRow = ({ run, onViewRoute }: { run: Run, onViewRoute: () => void }) => {
     const duration = run.endTime && run.startTime ? Math.round((run.endTime.seconds - run.startTime.seconds) / 60) : 0;
     
     return (
@@ -582,7 +594,7 @@ const HistoryTableRow = ({ run, onViewRoute }: { run: Run, onViewRoute: (locatio
             <TableCell>{run.vehicleId}</TableCell>
             <TableCell className="text-right">{duration} min</TableCell>
             <TableCell className="text-right">
-                <Button variant="outline" size="sm" onClick={() => onViewRoute(run.locationHistory)} disabled={!run.locationHistory || run.locationHistory.length < 2}>
+                <Button variant="outline" size="sm" onClick={onViewRoute}>
                   Ver Trajeto
                 </Button>
             </TableCell>
