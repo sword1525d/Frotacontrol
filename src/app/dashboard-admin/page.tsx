@@ -72,10 +72,20 @@ type UserData = {
   sectorId: string;
 };
 
+type Vehicle = {
+  id: string;
+  model: string;
+  isTruck: boolean;
+};
+
+type VehicleStatus = Vehicle & {
+  status: 'EM CORRIDA' | 'PARADO';
+  driverName?: string;
+}
+
 const createOptimizedGoogleMapsUrl = (locationHistory: LocationPoint[]) => {
   if (locationHistory.length < 2) return null;
 
-  // 1. Remover pontos de localização duplicados consecutivos para limpar os dados
   const uniqueLocations = locationHistory.reduce((acc, point) => {
     const lastPoint = acc[acc.length - 1];
     if (!lastPoint || point.latitude !== lastPoint.latitude || point.longitude !== lastPoint.longitude) {
@@ -89,8 +99,7 @@ const createOptimizedGoogleMapsUrl = (locationHistory: LocationPoint[]) => {
   const origin = `${uniqueLocations[0].latitude},${uniqueLocations[0].longitude}`;
   const destination = `${uniqueLocations[uniqueLocations.length - 1].latitude},${uniqueLocations[uniqueLocations.length - 1].longitude}`;
 
-  // 2. Limitar o número de waypoints para evitar uma URL muito longa
-  const maxWaypoints = 25; // Limite seguro para Google Maps
+  const maxWaypoints = 25;
   const waypoints = uniqueLocations.slice(1, -1);
   let selectedWaypoints = waypoints;
 
@@ -107,7 +116,6 @@ const createOptimizedGoogleMapsUrl = (locationHistory: LocationPoint[]) => {
 };
 
 
-// Função para abrir o pop-up
 const openRouteInPopup = (url: string | null) => {
   if (!url) {
     alert('Não há dados de localização suficientes para exibir o trajeto.');
@@ -129,6 +137,7 @@ const AdminDashboardPage = () => {
   
   const [user, setUser] = useState<UserData | null>(null);
   const [activeRuns, setActiveRuns] = useState<Run[]>([]);
+  const [vehicleStatuses, setVehicleStatuses] = useState<VehicleStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Efeito para carregar dados do usuário da sessão
@@ -151,19 +160,47 @@ const AdminDashboardPage = () => {
     }
   }, [router, toast]);
   
-  // Efeito para buscar dados em tempo real (corridas ativas)
+  // Efeito para buscar todos os dados (corridas e veículos)
   useEffect(() => {
     if (!firestore || !user) return;
 
     setIsLoading(true);
+    
+    // 1. Fetch all trucks once
+    const fetchAllTrucks = async () => {
+        try {
+            const vehiclesCol = collection(firestore, `companies/${user.companyId}/sectors/${user.sectorId}/vehicles`);
+            const vehiclesQuery = query(vehiclesCol, where('isTruck', '==', true));
+            const vehiclesSnapshot = await getDocs(vehiclesQuery);
+            return vehiclesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Vehicle));
+        } catch (error) {
+            console.error("Error fetching vehicles: ", error);
+            toast({ variant: 'destructive', title: 'Erro ao buscar veículos', description: 'Não foi possível carregar os dados da frota.' });
+            return [];
+        }
+    };
+
+    // 2. Setup real-time listener for active runs
     const runsCol = collection(firestore, `companies/${user.companyId}/sectors/${user.sectorId}/runs`);
     const activeRunsQuery = query(runsCol, where('status', '==', 'IN_PROGRESS'));
 
-    const unsubscribe = onSnapshot(activeRunsQuery, (querySnapshot) => {
-      const runs: Run[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Run));
-      const sortedRuns = runs.sort((a, b) => a.startTime.seconds - b.startTime.seconds);
-      setActiveRuns(sortedRuns);
-      setIsLoading(false);
+    const unsubscribe = onSnapshot(activeRunsQuery, async (querySnapshot) => {
+        const runs: Run[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Run));
+        const sortedRuns = runs.sort((a, b) => a.startTime.seconds - b.startTime.seconds);
+        setActiveRuns(sortedRuns);
+
+        // 3. Update vehicle statuses based on active runs
+        const allTrucks = await fetchAllTrucks();
+        const activeRunsMap = new Map(runs.map(run => [run.vehicleId, run.driverName]));
+
+        const statuses = allTrucks.map(truck => ({
+            ...truck,
+            status: activeRunsMap.has(truck.id) ? 'EM CORRIDA' : 'PARADO',
+            driverName: activeRunsMap.get(truck.id)
+        } as VehicleStatus));
+
+        setVehicleStatuses(statuses);
+        setIsLoading(false);
     }, (error) => {
       console.error("Error fetching active runs: ", error);
       toast({ variant: 'destructive', title: 'Erro ao buscar dados', description: 'Não foi possível carregar os acompanhamentos ativos.' });
@@ -173,7 +210,6 @@ const AdminDashboardPage = () => {
     return () => unsubscribe();
   }, [firestore, user, toast]);
 
-  // Função para buscar corridas completas (histórico)
     const fetchCompletedRuns = useCallback(async (): Promise<Run[]> => {
         if (!firestore || !user) return [];
 
@@ -185,7 +221,6 @@ const AdminDashboardPage = () => {
         try {
             const querySnapshot = await getDocs(runsQuery);
             const runs = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Run));
-            // Ordena os resultados no cliente
             return runs.sort((a, b) => (b.endTime?.seconds || 0) - (a.endTime?.seconds || 0));
         } catch (error) {
             console.error("Error fetching completed runs: ", error);
@@ -204,7 +239,7 @@ const AdminDashboardPage = () => {
     };
 
 
-  if (!user) {
+  if (!user || isLoading) {
      return <div className="flex justify-center items-center h-screen"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
   }
 
@@ -212,25 +247,28 @@ const AdminDashboardPage = () => {
     <div className="flex flex-col min-h-screen bg-gray-50 dark:bg-black">
       <Header />
       <main className="flex-1 p-4 sm:p-6 lg:p-8 space-y-6">
-       <Tabs defaultValue="realtime" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-lg mx-auto mb-6">
-          <TabsTrigger value="realtime"><PlayCircle className="mr-2"/> Em Tempo Real</TabsTrigger>
-          <TabsTrigger value="history"><LineChart className="mr-2"/> Histórico e Análise</TabsTrigger>
-        </TabsList>
-        <TabsContent value="realtime">
-            <RealTimeDashboard 
-              activeRuns={activeRuns} 
-              isLoading={isLoading}
-              onViewRoute={handleViewRoute}
-            />
-        </TabsContent>
-        <TabsContent value="history">
-            <HistoryDashboard 
-              fetchCompletedRuns={fetchCompletedRuns} 
-              onViewRoute={handleViewRoute}
-            />
-        </TabsContent>
-      </Tabs>
+        
+        <FleetStatusDashboard vehicleStatuses={vehicleStatuses} isLoading={isLoading} />
+
+        <Tabs defaultValue="realtime" className="w-full">
+            <TabsList className="grid w-full grid-cols-2 max-w-lg mx-auto mb-6">
+              <TabsTrigger value="realtime"><PlayCircle className="mr-2"/> Acompanhamentos Ativos</TabsTrigger>
+              <TabsTrigger value="history"><LineChart className="mr-2"/> Histórico e Análise</TabsTrigger>
+            </TabsList>
+            <TabsContent value="realtime">
+                <RealTimeDashboard 
+                  activeRuns={activeRuns} 
+                  isLoading={isLoading}
+                  onViewRoute={handleViewRoute}
+                />
+            </TabsContent>
+            <TabsContent value="history">
+                <HistoryDashboard 
+                  fetchCompletedRuns={fetchCompletedRuns} 
+                  onViewRoute={handleViewRoute}
+                />
+            </TabsContent>
+        </Tabs>
       </main>
     </div>
   );
@@ -268,6 +306,48 @@ const Header = () => {
       </header>
     );
 };
+
+const FleetStatusDashboard = ({ vehicleStatuses, isLoading }: { vehicleStatuses: VehicleStatus[], isLoading: boolean }) => {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Truck className="h-6 w-6"/> Status da Frota</CardTitle>
+        <CardDescription>Visão geral de todos os caminhões do setor.</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex justify-center items-center h-24"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+        ) : vehicleStatuses.length === 0 ? (
+          <p className="text-muted-foreground text-center">Nenhum caminhão encontrado neste setor.</p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+            {vehicleStatuses.map(vehicle => (
+              <VehicleStatusCard key={vehicle.id} vehicle={vehicle} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const VehicleStatusCard = ({ vehicle }: { vehicle: VehicleStatus }) => {
+  const isRunning = vehicle.status === 'EM CORRIDA';
+  return (
+    <Card className={`flex flex-col items-center justify-center p-4 text-center ${isRunning ? 'bg-blue-50 dark:bg-blue-900/30' : 'bg-gray-50 dark:bg-gray-800/30'}`}>
+        <p className="font-bold text-lg">{vehicle.id}</p>
+        <p className="text-xs text-muted-foreground -mt-1 mb-2">{vehicle.model}</p>
+        <Badge variant={isRunning ? 'default' : 'secondary'} className={isRunning ? 'bg-blue-600' : ''}>
+            {vehicle.status}
+        </Badge>
+        {isRunning && vehicle.driverName && (
+            <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                <User className="h-3 w-3"/>{vehicle.driverName}
+            </p>
+        )}
+    </Card>
+  )
+}
 
 
 // --- Componente Aba Tempo Real ---
@@ -393,7 +473,7 @@ const HistoryDashboard = ({ fetchCompletedRuns, onViewRoute }: { fetchCompletedR
         return allRuns.filter(run => {
             if (!run.endTime?.seconds) return false;
             const runDate = new Date(run.endTime.seconds * 1000);
-            return runDate >= startOfDay(date.from) && runDate <= endOfDay(toDate);
+            return runDate >= startOfDay(date.from!) && runDate <= endOfDay(toDate);
         });
     }, [allRuns, date]);
 
