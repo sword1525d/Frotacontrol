@@ -24,6 +24,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useFirebase } from '@/firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from "firebase/auth";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const loginSchema = z.object({
   companyId: z.string().min(1, "Selecione uma empresa"),
@@ -42,6 +43,7 @@ export default function LoginPage() {
   const router = useRouter();
   const { toast } = useToast();
   const { firestore, auth } = useFirebase();
+  const isMobile = useIsMobile();
 
   const [companies, setCompanies] = useState<Company[]>([]);
   const [sectors, setSectors] = useState<Sector[]>([]);
@@ -154,7 +156,7 @@ export default function LoginPage() {
 
             setTimeout(() => {
                 let redirectUrl = "/dashboard"; 
-                if (userData.isAdmin && data.sectorId === "MILKRUN") {
+                if (userData.isAdmin && !isMobile) {
                     redirectUrl = "/dashboard-admin";
                 } else if (userData.truck) {
                     redirectUrl = "/dashboard-truck";
