@@ -209,6 +209,10 @@
                   "number",
                   "null"
                 ]
+              },
+              "occupancy": {
+                "type": "number",
+                "description": "The occupancy rate of the truck at this stop, from 0 to 100."
               }
             },
             "required": [

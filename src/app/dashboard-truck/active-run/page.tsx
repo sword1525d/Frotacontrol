@@ -38,6 +38,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { ArrowLeft, CheckCircle2, Loader2, Milestone, Plus, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
+import { OccupancySelector } from './OccupancySelector';
 
 const PREDEFINED_STOP_POINTS: string[] = [
   "PINT. ABS", "PINT. FX ABS", "MOCOM", "INJ. PLÁSTICA", "PINT. PÓ", "USINAGEM", "PINT. TANQUE", "PINT. ALUMÍNIO",
@@ -56,6 +57,7 @@ type Stop = {
   collectedOccupiedCars: number | null;
   collectedEmptyCars: number | null;
   mileageAtStop: number | null;
+  occupancy: number | null;
 };
 
 type LocationPoint = {
@@ -154,7 +156,7 @@ function ActiveRunContent() {
 
   const [run, setRun] = useState<Run | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [stopData, setStopData] = useState<{ [key: string]: { occupied: string; empty: string; mileage: string } }>({});
+  const [stopData, setStopData] = useState<{ [key: string]: { occupied: string; empty: string; mileage: string, occupancy: number; } }>({});
   const [newPoint, setNewPoint] = useState('');
   
   const runId = searchParams.get('id');
@@ -189,6 +191,7 @@ function ActiveRunContent() {
                   occupied: stop.collectedOccupiedCars?.toString() || '',
                   empty: stop.collectedEmptyCars?.toString() || '',
                   mileage: stop.mileageAtStop?.toString() || '',
+                  occupancy: stop.occupancy ?? 0
                 }
               }
             });
@@ -256,8 +259,8 @@ function ActiveRunContent() {
     if(stopsArray.length === 0) return;
 
     const stopName = stopsArray[stopIndex].name;
-    const currentStopData = stopData[stopName] || { occupied: '', empty: '', mileage: '' };
-    const { occupied, empty, mileage } = currentStopData;
+    const currentStopData = stopData[stopName] || { occupied: '', empty: '', mileage: '', occupancy: 0 };
+    const { occupied, empty, mileage, occupancy } = currentStopData;
 
     if (!occupied || !empty || !mileage) {
       toast({ variant: 'destructive', title: 'Campos obrigatórios', description: 'Preencha todos os campos para finalizar a parada.' });
@@ -283,6 +286,7 @@ function ActiveRunContent() {
         collectedOccupiedCars: finalOccupied,
         collectedEmptyCars: finalEmpty,
         mileageAtStop: finalMileage,
+        occupancy: occupancy,
       };
 
       await updateDoc(runRef, {
@@ -300,6 +304,7 @@ function ActiveRunContent() {
                     collectedOccupiedCars: finalOccupied,
                     collectedEmptyCars: finalEmpty,
                     mileageAtStop: finalMileage,
+                    occupancy: occupancy,
                 };
             }
             return stop;
@@ -314,11 +319,11 @@ function ActiveRunContent() {
     }
   };
 
-  const handleStopDataChange = (stopName: string, field: 'occupied' | 'empty' | 'mileage', value: string) => {
+  const handleStopDataChange = (stopName: string, field: 'occupied' | 'empty' | 'mileage' | 'occupancy', value: string | number) => {
     setStopData(prev => ({
         ...prev,
         [stopName]: {
-            ...(prev[stopName] || { occupied: '', empty: '', mileage: '' }),
+            ...(prev[stopName] || { occupied: '', empty: '', mileage: '', occupancy: 0 }),
             [field]: value
         }
     }));
@@ -353,6 +358,7 @@ function ActiveRunContent() {
         collectedOccupiedCars: null,
         collectedEmptyCars: null,
         mileageAtStop: null,
+        occupancy: null,
       };
       const newStops = [...run.stops, newStop];
       updateStopsInFirestore(newStops);
@@ -484,8 +490,12 @@ function ActiveRunContent() {
                         </CardHeader>
 
                         {isInProgress && (
-                            <CardContent className="space-y-4 pt-0">
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <CardContent className="space-y-6 pt-0">
+                               <OccupancySelector 
+                                    initialValue={stopData[stop.name]?.occupancy || 0}
+                                    onValueChange={(value) => handleStopDataChange(stop.name, 'occupancy', value)}
+                                />
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     <div className="space-y-1">
                                         <Label htmlFor={`occupied-${stopNameIdentifier}`} className="text-sm">Carros ocupados</Label>
                                         <Input id={`occupied-${stopNameIdentifier}`} type="number" placeholder="Qtd." 
@@ -507,15 +517,18 @@ function ActiveRunContent() {
                                             onChange={(e) => handleStopDataChange(stop.name, 'mileage', e.target.value)}
                                         />
                                     </div>
-                            </div>
+                                </div>
                             </CardContent>
                         )}
                         
                         {isCompleted && (
-                            <CardContent className="space-y-2 pt-0 text-sm text-muted-foreground">
-                                <p>Carros ocupados: <strong>{stop.collectedOccupiedCars}</strong></p>
-                                <p>Carros vazios: <strong>{stop.collectedEmptyCars}</strong></p>
-                                <p>KM na Parada: <strong>{stop.mileageAtStop}</strong></p>
+                           <CardContent className="space-y-4 pt-0 text-sm text-muted-foreground">
+                                <OccupancySelector initialValue={stop.occupancy ?? 0} disabled />
+                                <div className="grid grid-cols-3 gap-4 border-t pt-4">
+                                    <p>Ocupados: <strong>{stop.collectedOccupiedCars}</strong></p>
+                                    <p>Vazios: <strong>{stop.collectedEmptyCars}</strong></p>
+                                    <p>KM: <strong>{stop.mileageAtStop}</strong></p>
+                                </div>
                             </CardContent>
                         )}
 

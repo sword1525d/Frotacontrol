@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Loader2, Calendar as CalendarIcon, Route, Truck, User, Clock, CheckCircle, Car, Package } from 'lucide-react';
+import { Loader2, Calendar as CalendarIcon, Route, Truck, User, Clock, CheckCircle, Car, Package, Warehouse } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useRouter } from 'next/navigation';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
@@ -44,6 +44,7 @@ type Stop = {
   collectedOccupiedCars: number | null;
   collectedEmptyCars: number | null;
   mileageAtStop: number | null;
+  occupancy: number | null;
 };
 
 export type LocationPoint = {
@@ -397,7 +398,7 @@ const RunDetailsDialog = ({ run, isOpen, onClose }: { run: Run | null, isOpen: b
                                         </CardTitle>
                                     </CardHeader>
                                     <CardContent>
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                                        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                                             <div className="flex items-center gap-2">
                                                 <Clock className="h-4 w-4 text-muted-foreground" />
                                                 <div>
@@ -417,6 +418,10 @@ const RunDetailsDialog = ({ run, isOpen, onClose }: { run: Run | null, isOpen: b
                                                 <Package className="h-4 w-4 text-muted-foreground" />
                                                 <p className="font-semibold">Vazios: {stop.collectedEmptyCars ?? 'N/A'}</p>
                                             </div>
+                                             <div className="flex items-center gap-2">
+                                                <Warehouse className="h-4 w-4 text-muted-foreground" />
+                                                <p className="font-semibold">Ocupação: {stop.occupancy ?? 'N/A'}%</p>
+                                            </div>
                                         </div>
                                     </CardContent>
                                 </Card>
@@ -433,5 +438,3 @@ const RunDetailsDialog = ({ run, isOpen, onClose }: { run: Run | null, isOpen: b
 }
 
 export default HistoryPage;
-
-    
