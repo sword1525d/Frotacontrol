@@ -22,7 +22,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useFirebase } from '@/firebase';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { PlaceHolderImages } from "@/lib/placeholder-images";
 import { cn } from "@/lib/utils";
 
 const loginSchema = z.object({
@@ -47,14 +46,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingCompanies, setIsFetchingCompanies] = useState(true);
   const [isFetchingSectors, setIsFetchingSectors] = useState(false);
-  const [isMounted, setIsMounted] = useState(false);
-
-  const backgroundImage = PlaceHolderImages.find(img => img.id === 'login-bg');
   
-  useEffect(() => {
-    setIsMounted(true);
-  }, [])
-
   const {
     control,
     handleSubmit,
@@ -194,112 +186,92 @@ export default function LoginPage() {
   };
   
  return (
-    <div className="relative h-screen w-full flex items-center justify-center overflow-hidden">
-        {/* Background Image and Overlay */}
-        {backgroundImage && (
-            <Image
-                src={backgroundImage.imageUrl}
-                alt={backgroundImage.description}
-                fill
-                className={cn(
-                    "object-cover transition-all duration-[2000ms]",
-                    isMounted ? "scale-100" : "scale-125"
-                )}
-                priority
-            />
-        )}
-        <div className="absolute inset-0 bg-blue-900/50" />
-
-        {/* Login Card */}
-        <div className={cn(
-            "relative w-full max-w-sm rounded-xl border border-white/20 bg-white/10 p-6 shadow-2xl backdrop-blur-lg transition-all duration-700",
-            isMounted ? "opacity-100 scale-100" : "opacity-0 scale-90"
-        )}>
-            <div className="grid gap-2 text-center text-white">
-                <div className="flex items-center justify-center gap-2 mb-4">
-                    <Truck className="h-8 w-8 text-white" />
-                    <h1 className="text-3xl font-bold font-headline text-white">
+    <div className="flex h-screen w-full flex-col items-center justify-center bg-gray-50 p-4 dark:bg-zinc-950">
+        <div className="w-full max-w-sm">
+            <div className="grid gap-2 text-center mb-8">
+                <div className="flex items-center justify-center gap-2">
+                    <Truck className="h-8 w-8 text-primary" />
+                    <h1 className="text-4xl font-bold font-headline text-primary">
                         Frotacontrol
                     </h1>
                 </div>
-                <h2 className="text-2xl font-bold font-headline">Acesse sua conta</h2>
-                <p className="text-balance text-white/80">
-                    Selecione sua empresa, setor e insira suas credenciais.
+                <p className="text-balance text-muted-foreground">
+                    Acesse sua conta para gerenciar a frota.
                 </p>
             </div>
-            <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4 mt-6">
-                <div className="grid gap-2">
-                    <Controller
-                        name="companyId"
-                        control={control}
-                        render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value} disabled={isFetchingCompanies}>
-                                <SelectTrigger className="bg-white/20 border-white/30 text-white placeholder:text-white/70">
-                                    <SelectValue placeholder={isFetchingCompanies ? "Carregando..." : "Selecione a empresa"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {companies.map((company) => (
-                                        <SelectItem key={company.id} value={company.id}>
-                                            {company.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        )}
-                    />
-                    {errors.companyId && <p className="text-sm text-red-300">{errors.companyId.message}</p>}
-                </div>
-                <div className="grid gap-2">
-                    <Controller
-                        name="sectorId"
-                        control={control}
-                        render={({ field }) => (
-                            <Select onValueChange={field.onChange} value={field.value} disabled={!selectedCompanyId || isFetchingSectors}>
-                                <SelectTrigger className="bg-white/20 border-white/30 text-white placeholder:text-white/70">
-                                    <SelectValue placeholder={isFetchingSectors ? "Carregando..." : "Selecione o setor"} />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {sectors.map((sector) => (
-                                        <SelectItem key={sector.id} value={sector.id}>
-                                            {sector.name}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        )}
-                    />
-                    {errors.sectorId && <p className="text-sm text-red-300">{errors.sectorId.message}</p>}
-                </div>
-                <div className="grid gap-2">
-                    <Controller
-                        name="email"
-                        control={control}
-                        render={({ field }) => <Input id="email" placeholder="Sua matrícula" {...field} className="bg-white/20 border-white/30 text-white placeholder:text-white/70" />}
-                    />
-                    {errors.email && <p className="text-sm text-red-300">{errors.email.message}</p>}
-                </div>
-                <div className="grid gap-2">
-                    <Controller
-                        name="password"
-                        control={control}
-                        render={({ field }) => <Input id="password" type="password" placeholder="Sua senha" {...field} className="bg-white/20 border-white/30 text-white placeholder:text-white/70" />}
-                    />
-                    {errors.password && <p className="text-sm text-red-300">{errors.password.message}</p>}
-                </div>
-                <Button type="submit" className="w-full bg-white text-primary hover:bg-white/90" disabled={isLoading}>
-                    {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    Entrar
-                </Button>
-            </form>
+            <div className="rounded-lg border bg-card p-6 shadow-sm">
+                <form onSubmit={handleSubmit(onSubmit)} className="grid gap-4">
+                    <div className="grid gap-2">
+                        <Controller
+                            name="companyId"
+                            control={control}
+                            render={({ field }) => (
+                                <Select onValueChange={field.onChange} value={field.value} disabled={isFetchingCompanies}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder={isFetchingCompanies ? "Carregando..." : "Selecione a empresa"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {companies.map((company) => (
+                                            <SelectItem key={company.id} value={company.id}>
+                                                {company.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        />
+                        {errors.companyId && <p className="text-sm text-destructive">{errors.companyId.message}</p>}
+                    </div>
+                    <div className="grid gap-2">
+                        <Controller
+                            name="sectorId"
+                            control={control}
+                            render={({ field }) => (
+                                <Select onValueChange={field.onChange} value={field.value} disabled={!selectedCompanyId || isFetchingSectors}>
+                                    <SelectTrigger>
+                                        <SelectValue placeholder={isFetchingSectors ? "Carregando..." : "Selecione o setor"} />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {sectors.map((sector) => (
+                                            <SelectItem key={sector.id} value={sector.id}>
+                                                {sector.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            )}
+                        />
+                        {errors.sectorId && <p className="text-sm text-destructive">{errors.sectorId.message}</p>}
+                    </div>
+                    <div className="grid gap-2">
+                         <Controller
+                            name="email"
+                            control={control}
+                            render={({ field }) => <Input id="email" placeholder="Sua matrícula" {...field} />}
+                        />
+                        {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+                    </div>
+                    <div className="grid gap-2">
+                        <Controller
+                            name="password"
+                            control={control}
+                            render={({ field }) => <Input id="password" type="password" placeholder="Sua senha" {...field} />}
+                        />
+                        {errors.password && <p className="text-sm text-destructive">{errors.password.message}</p>}
+                    </div>
+                    <Button type="submit" className="w-full" disabled={isLoading}>
+                        {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        Entrar
+                    </Button>
+                </form>
+            </div>
         </div>
 
-        <div className="fixed bottom-4 left-0 right-0 flex justify-center items-center gap-4">
-            <Image src="/logo_projetos.svg" alt="Logo Projetos" width={60} height={20} className="opacity-70 invert brightness-0" />
-            <Image src="/divmao.png" alt="Selo de Desenvolvimento" width={80} height={25} className="opacity-70 invert brightness-0" />
+        <div className="absolute bottom-6 flex items-center justify-center gap-4">
+            <Image src="/logo_projetos.svg" alt="Logo Projetos" width={60} height={20} className="opacity-50" />
+            <Image src="/divmao.png" alt="Selo de Desenvolvimento" width={80} height={25} className="opacity-50" />
         </div>
     </div>
 );
 
 }
-
-    
