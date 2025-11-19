@@ -187,7 +187,7 @@ export default function LoginPage() {
   };
   
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background p-6">
+    <div className="flex items-center justify-center h-screen bg-background p-6">
       <div className="mx-auto grid w-full max-w-sm gap-6">
         <div className="grid gap-2 text-center">
           <div className="flex items-center justify-center gap-2 mb-4">
